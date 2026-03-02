@@ -1,6 +1,6 @@
 /* File: "mem.c" */
 
-/* Copyright (c) 1994-2025 by Marc Feeley, All Rights Reserved.  */
+/* Copyright (c) 1994-2026 by Marc Feeley, All Rights Reserved.  */
 
 #define ___INCLUDED_FROM_MEM
 #define ___VERSION 409007
@@ -326,6 +326,8 @@
 #define the_msections           ___VMSTATE_MEM(the_msections_)
 #define alloc_msection          ___VMSTATE_MEM(alloc_msection_)
 #define nb_msections_assigned   ___VMSTATE_MEM(nb_msections_assigned_)
+#define target_msections_hist   ___VMSTATE_MEM(target_msections_hist_)
+#define target_msections_hist_last ___VMSTATE_MEM(target_msections_hist_last_)
 #define target_processor_count  ___VMSTATE_MEM(target_processor_count_)
 
 #ifndef ___SINGLE_THREADED_VMS
@@ -4772,6 +4774,19 @@ ___virtual_machine_state ___vms;)
 
   nb_msections_assigned = 0;
 
+#if ___TARGET_MSECTIONS_HIST_LENGTH > 0
+
+  {
+    int i;
+
+    for (i=0; i<___TARGET_MSECTIONS_HIST_LENGTH; i++)
+      target_msections_hist[i] = 0;
+
+    target_msections_hist_last = 0;
+  }
+
+#endif
+
   heap_size = compute_heap_space();
 
   return ___FIX(___NO_ERR);
@@ -6297,6 +6312,31 @@ ___SIZE_TS requested_words_still;)
 
   SET_MAX(target_nb_sections,
           nb_msections_assigned);
+
+#if ___TARGET_MSECTIONS_HIST_LENGTH > 0
+
+  /*
+   * Do not shrink the number of msections abruptly. The number of
+   * msections will be at least the target size in recent history.
+   */
+
+  {
+    int m = target_nb_sections;
+    int i;
+
+    for (i=0; i<___TARGET_MSECTIONS_HIST_LENGTH; i++)
+      if (target_msections_hist[i] > m)
+        m = target_msections_hist[i];
+
+    target_msections_hist_last =
+      (target_msections_hist_last+1) % ___TARGET_MSECTIONS_HIST_LENGTH;
+
+    target_msections_hist[target_msections_hist_last] = target_nb_sections;
+
+    target_nb_sections = m;
+  }
+
+#endif
 
   adjust_msections (&the_msections, target_nb_sections);
 

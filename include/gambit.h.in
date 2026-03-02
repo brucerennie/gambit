@@ -1,7 +1,7 @@
 /* File: "gambit.h" */
 
 /*
- * Copyright (c) 1994-2025 by Marc Feeley, All Rights Reserved.
+ * Copyright (c) 1994-2026 by Marc Feeley, All Rights Reserved.
  */
 
 #ifndef ___GAMBIT_H
@@ -11424,6 +11424,15 @@ ___msection *alloc_msection_;
 
 /* number of msections assigned to processors */
 int nb_msections_assigned_;
+
+/* history of target number of msections */
+#ifndef ___TARGET_MSECTIONS_HIST_LENGTH
+#define ___TARGET_MSECTIONS_HIST_LENGTH 16
+#endif
+#if ___TARGET_MSECTIONS_HIST_LENGTH > 0
+int target_msections_hist_[___TARGET_MSECTIONS_HIST_LENGTH];
+int target_msections_hist_last_;
+#endif
 
 /* Used for resizing VM (number of processors after the resize operation) */
 ___VOLATILE int target_processor_count_;
