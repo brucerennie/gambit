@@ -47,7 +47,16 @@
 (check-true (nan? (real-part (tanh +nan.0+nan.0i))))
 (check-true (nan? (imag-part (tanh +nan.0+nan.0i))))
 
-(define (test-tanh z) (/ (sinh z) (cosh z)))
+(define (test-tanh z)
+  ;; avoid infinity / infinity
+  (cond ((< 1 (real-part z))
+         (/ (- 1 (exp (* -2 z)))
+            (+ 1 (exp (* -2 z)))))
+        ((< (real-part z) -1)
+         (/ (- (exp (* 2 z)) 1)
+            (+ (exp (* 2 z)) 1)))
+        (else
+         (/ (sinh z) (cosh z)))))
 
 (for-each (lambda (x)
             (for-each (lambda (y)
