@@ -2937,9 +2937,9 @@ for a discussion of branch cuts.
                        (if (fl= inexact-y (macro-inexact-+0))
                            (macro-inexact-+inf)
                            (##fllog (##fl/ (##flsqrt (##flsqrt (##fl+ (macro-inexact-+4) (##flsquare abs-y))))
-                                           (##flsqrt (##fl+ abs-y rho)))))
+                                           (##flsqrt abs-y))))
                        (##fl/ (##flcopysign (##fl+ (macro-inexact-+pi/2)
-                                                   (##flatan (##fl/ (##fl+ abs-y rho)
+                                                   (##flatan (##fl/ abs-y
                                                                     (macro-inexact-+2))))
                                             inexact-y)
                               (macro-inexact-+2))))
@@ -2951,11 +2951,11 @@ for a discussion of branch cuts.
                            0
                            (##fl/ (##fllog1p (##fl/ (##fl* (macro-inexact-+4) inexact-x)   ;; was (##* 4 x) originally
                                                     (##fl+ (##flsquare (##fl- (macro-inexact-+1) inexact-x))
-                                                           (##flsquare (##fl+ abs-y rho)))))
+                                                           (##flsquare abs-y))))
                                   (macro-inexact-+4)))
                        (##fl/ (##carg (macro-cpxnum-make (##fl- (##fl* (##fl- (macro-inexact-+1) inexact-x)
                                                                        (##fl+ (macro-inexact-+1) inexact-x))
-                                                                (##flsquare (##fl+ abs-y rho)))
+                                                                (##flsquare abs-y))
                                                          (##fl* (macro-inexact-+2) inexact-y)))
                               (macro-inexact-+2)))))))
     (##* beta (##conjugate zeta))))
