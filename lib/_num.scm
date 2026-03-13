@@ -2935,7 +2935,7 @@ for a discussion of branch cuts.
                      ((##fl= inexact-x (macro-inexact-+1))
                       (macro-cpxnum-make
                        (if (fl= inexact-y (macro-inexact-+0))
-                           (macro-inexact--inf)
+                           (macro-inexact-+inf)
                            (##fllog (##fl/ (##flsqrt (##flsqrt (##fl+ (macro-inexact-+4) (##flsquare abs-y))))
                                            (##flsqrt (##fl+ abs-y rho)))))
                        (##fl/ (##flcopysign (##fl+ (macro-inexact-+pi/2)
