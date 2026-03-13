@@ -61,11 +61,28 @@
   (##first-argument (thunk)))
 
 (define (##check-=-proc n1 n2 tolerance msg)
-  (if (or (##not (##number? n1))
-          (##not (##number? n2))
-          (##< tolerance (##magnitude (##- n1 n2))))
-      (##failed-check msg n1)))
-                  
+
+  (define (isnan? x)
+    (##not (##= x x)))
+
+  (define (similar? x y)
+    (or (and (isnan? x)
+             (isnan? y))
+        (and (##infinite? x)
+             (##infinite? y)
+             (##= x y))
+        (and (##finite? x)
+             (##finite? y)
+             (##<= (##abs (##- x y)) tolerance))))
+
+  (if (##not (and (##number? n1)
+                  (##number? n2)
+                  (similar? (##real-part n1) (##real-part n2))
+                  (similar? (##imag-part n1) (##imag-part n2))))
+      (begin
+        #; (pp (list n1 n2))  ;; for debugging purposes
+        (##failed-check msg n1))))
+
 (##define-macro (##setup-check)
 
   (eval '(##begin
