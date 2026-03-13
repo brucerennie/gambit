@@ -18,9 +18,9 @@
 (check-= (atanh -2+0.i) (test-atanh -2+0.i))
 (check-= (atanh -2-0.i) (test-atanh -2-0.i))
 
-(check-= (atanh 1.0)     (test-atanh 1.0))
-(check-= (atanh 1.0+0.i) (test-atanh 1.0+0.i))
-(check-= (atanh 1.0-0.i) (test-atanh 1.0-0.i))
+(check-= (atanh 1.0)   (test-atanh 1.0))
+(check-= (atanh 1+0.i) (test-atanh 1+0.i))  ;; test-atanh is not correct for 1.+0.i
+(check-= (atanh 1-0.i) (test-atanh 1-0.i))  ;; test-atanh is not correct for 1.-0.i
 
 ;;; Test for accuracy for large real x
 
