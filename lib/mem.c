@@ -4728,6 +4728,7 @@ ___virtual_machine_state ___vms;)
 #undef ___VMSTATE_MEM
 #define ___VMSTATE_MEM(var) ___vms->mem.var
 
+  ___SIZE_TS init_heap_size;
   int init_nb_sections;
 
 #ifndef ___SINGLE_THREADED_VMS
@@ -4819,10 +4820,15 @@ ___virtual_machine_state ___vms;)
 
   /* Allocate msections of VM */
 
-  init_nb_sections = compute_nb_msections_min(___vms->processor_count);
+  init_heap_size = ___GSTATE->setup_params.min_heap;
+
+  if (___GSTATE->setup_params.max_heap > 0)
+    SET_MIN(init_heap_size, ___GSTATE->setup_params.max_heap);
+
+  init_nb_sections = compute_nb_msections_needed(init_heap_size >> ___LWS);
 
   SET_MAX(init_nb_sections,
-          compute_nb_msections_needed(___GSTATE->setup_params.min_heap >> ___LWS));
+          compute_nb_msections_min(___vms->processor_count));
 
   adjust_msections (&the_msections, init_nb_sections);
 
@@ -4864,9 +4870,11 @@ ___SCMOBJ ___setup_mem ___PVOID
     {
       /*
        * Choose a reasonable minimum heap size.
+       *
+       * The size of the L2 data cache is probably good.
        */
 
-      ___GSTATE->setup_params.min_heap = ___cpu_cache_size (0, 0) / 2;
+      ___GSTATE->setup_params.min_heap = ___cpu_cache_size (0, 2);
     }
 
   SET_MAX(___GSTATE->setup_params.min_heap, ___DEFAULT_MIN_HEAP);
