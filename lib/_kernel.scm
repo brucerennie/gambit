@@ -2,7 +2,7 @@
 
 ;;; File: "_kernel.scm"
 
-;;; Copyright (c) 1994-2025 by Marc Feeley, All Rights Reserved.
+;;; Copyright (c) 1994-2026 by Marc Feeley, All Rights Reserved.
 
 ;;;============================================================================
 
@@ -62,7 +62,7 @@ do { \
       else \
         { \
           ___BOOL overflow = 0; \
-          if (___hp + words > ___ps->heap_limit) \
+          if (___hp > ___ps->heap_limit) \
             { \
               ___FRAME_STORE_RA(___R0) \
               ___W_ALL \

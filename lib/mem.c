@@ -326,8 +326,9 @@
 #define the_msections           ___VMSTATE_MEM(the_msections_)
 #define alloc_msection          ___VMSTATE_MEM(alloc_msection_)
 #define nb_msections_assigned   ___VMSTATE_MEM(nb_msections_assigned_)
-#define target_msections_hist   ___VMSTATE_MEM(target_msections_hist_)
-#define target_msections_hist_last ___VMSTATE_MEM(target_msections_hist_last_)
+#define nb_msections_stacks     ___VMSTATE_MEM(nb_msections_stacks_)
+#define target_heap_space_hist  ___VMSTATE_MEM(target_heap_space_hist_)
+#define target_heap_space_hist_last ___VMSTATE_MEM(target_heap_space_hist_last_)
 #define target_processor_count  ___VMSTATE_MEM(target_processor_count_)
 
 #ifndef ___SINGLE_THREADED_VMS
@@ -484,14 +485,28 @@
  *  alloc_heap_start                                          alloc_stack_start
  */
 
-#define compute_heap_space() \
-(___CAST(___SIZE_TS,the_msections->nb_sections) * ___MSECTION_SIZE + occupied_words_still)
+#define compute_heap_size() \
+(compute_msection_size(the_msections->nb_sections) + occupied_words_still)
 
-#define compute_assigned_heap_space() \
-(___CAST(___SIZE_TS,nb_msections_assigned) * ___MSECTION_SIZE + occupied_words_still)
+#define compute_msection_size(nb_sections) \
+(___CAST(___SIZE_TS,nb_sections) * ___MSECTION_SIZE)
 
-#define compute_free_heap_space() \
-(heap_size - compute_assigned_heap_space() - overflow_reserve)
+#define compute_free_heap_space_approximately() \
+(heap_size - compute_msection_size(nb_msections_assigned) \
+ - occupied_words_still - overflow_reserve)
+
+#define compute_free_heap_space_in_msections(nb_sections) \
+(compute_msection_space(nb_sections - nb_msections_stacks) \
+ - occupied_words_movable)
+
+#define compute_msection_space(nb_sections) \
+(___CAST(___SIZE_TS,nb_sections) * (___MSECTION_SIZE - 2*___MSECTION_FUDGE))
+
+#define compute_nb_msections_needed(words) \
+(___CEILING_DIV(words, ___MSECTION_SIZE - 2*___MSECTION_FUDGE))
+
+#define compute_nb_msections_min(processor_count) \
+(___MIN_NB_MSECTIONS_PER_PROCESSOR * processor_count)
 
 /*---------------------------------------------------------------------------*/
 
@@ -1600,7 +1615,7 @@ ___SIZE_TS bytes;)
 
       ALLOC_MEM_LOCK();
 
-      if (words_including_deferred <= compute_free_heap_space())
+      if (words_including_deferred <= compute_free_heap_space_approximately())
         {
           /*
            * There is sufficient free heap space, so no need to call GC.
@@ -3201,6 +3216,7 @@ ___processor_state ___ps;)
 {
   ___msection *ms;
   ms = next_msection_without_locking (___ps, heap_msection);
+  nb_msections_stacks++; /* one more msection assigned to stacks */
   set_stack_msection_possibly_sharing_with_heap (___ps, ms);
 }
 
@@ -3213,6 +3229,7 @@ ___processor_state ___ps;)
   ___msection *ms;
   ALLOC_MEM_LOCK();
   ms = next_msection_without_locking (___ps, heap_msection);
+  nb_msections_stacks++; /* one more msection assigned to stacks */
   ALLOC_MEM_UNLOCK();
   set_stack_msection_possibly_sharing_with_heap (___ps, ms);
 }
@@ -3432,6 +3449,7 @@ ___virtual_machine_state ___vms;)
     }
 
   nb_msections_assigned = np*2;
+  nb_msections_stacks   = np;
 
 #ifndef ___SINGLE_THREADED_VMS
 
@@ -4433,29 +4451,74 @@ ___processor_state ___ps;)
 }
 
 
+___HIDDEN ___SIZE_TS max_target_heap_space_in_recent_history
+    ___P((___virtual_machine_state ___vms),
+         (___vms)
+___virtual_machine_state ___vms;)
+{
+#undef ___VMSTATE_MEM
+#define ___VMSTATE_MEM(var) ___vms->mem.var
+
+  ___SIZE_TS max_target_heap_space = 0;
+
+#if ___TARGET_HEAP_SPACE_HIST_LENGTH > 0
+
+  int i;
+
+  for (i=0; i<___TARGET_HEAP_SPACE_HIST_LENGTH; i++)
+    if (target_heap_space_hist[i] > max_target_heap_space)
+      max_target_heap_space = target_heap_space_hist[i];
+
+#endif
+
+  return max_target_heap_space;
+
+#undef ___VMSTATE_MEM
+#define ___VMSTATE_MEM(var) ___VMSTATE_FROM_PSTATE(___ps)->mem.var
+}
+
+
+___HIDDEN void add_to_target_heap_space_history
+    ___P((___virtual_machine_state ___vms,
+          ___SIZE_TS target_heap_space),
+         (___vms,
+          target_heap_space)
+___virtual_machine_state ___vms;
+___SIZE_TS target_heap_space;)
+{
+#undef ___VMSTATE_MEM
+#define ___VMSTATE_MEM(var) ___vms->mem.var
+
+#if ___TARGET_HEAP_SPACE_HIST_LENGTH > 0
+
+  target_heap_space_hist_last =
+    (target_heap_space_hist_last+1) % ___TARGET_HEAP_SPACE_HIST_LENGTH;
+
+  target_heap_space_hist[target_heap_space_hist_last] = target_heap_space;
+
+#endif
+
+#undef ___VMSTATE_MEM
+#define ___VMSTATE_MEM(var) ___VMSTATE_FROM_PSTATE(___ps)->mem.var
+}
+
+
 ___HIDDEN ___SIZE_TS adjust_heap
    ___P((___SIZE_TS live),
         (live)
 ___SIZE_TS live;)
 {
-  ___SIZE_TS target;
+  ___SIZE_TS target_heap_space = live;
 
   if (___GSTATE->setup_params.adjust_heap_hook != 0)
-    return ___GSTATE->setup_params.adjust_heap_hook (live);
+    target_heap_space = ___GSTATE->setup_params.adjust_heap_hook (live);
+  else if (___GSTATE->setup_params.live_percent < 100)
+    target_heap_space = live / ___GSTATE->setup_params.live_percent * 100;
 
-  if (___GSTATE->setup_params.live_percent < 100)
-    target = live / ___GSTATE->setup_params.live_percent * 100;
-  else
-    target = live + ___MSECTION_BIGGEST;
-
-  SET_MAX(target,
+  SET_MAX(target_heap_space,
           ___CAST(___SIZE_TS,(___GSTATE->setup_params.min_heap >> ___LWS)));
 
-  if (___GSTATE->setup_params.max_heap > 0)
-    SET_MIN(target,
-            ___CAST(___SIZE_TS,(___GSTATE->setup_params.max_heap >> ___LWS)));
-
-  return target;
+  return target_heap_space;
 }
 
 
@@ -4474,7 +4537,7 @@ ___processor_state ___ps;)
   avail = 0;
   ___ps->mem.gc_calls_to_punt_ = 2000;
 #else
-  avail = compute_free_heap_space()/2;
+  avail = compute_free_heap_space_approximately()/2;
   SET_MAX(avail,0);
 #endif
 
@@ -4729,13 +4792,12 @@ ___virtual_machine_state ___vms;)
   ___PSTATE_FROM_PROCESSOR_ID(0,___vms)->mem.tospace_offset_ = 0;
 
   /*
-   * Set the overflow reserve so that the rest parameter handler can
-   * construct the rest parameter list without having to call the
-   * garbage collector.
+   * Set the overflow reserve so that there is 4 times the space for
+   * the rest parameter handler to construct the rest parameter list
+   * without having to call the garbage collector.
    */
 
-  normal_overflow_reserve = 2*((___MAX_NB_PARMS+___SUBTYPED_BODY) +
-                               ___MAX_NB_ARGS*(___PAIR_SIZE+___PAIR_BODY));
+  normal_overflow_reserve = ___DEFAULT_NORMAL_OVERFLOW_RESERVE;
   overflow_reserve = normal_overflow_reserve;
 
   /* Setup GC statistics */
@@ -4757,11 +4819,10 @@ ___virtual_machine_state ___vms;)
 
   /* Allocate msections of VM */
 
-  init_nb_sections =
-    ___MIN_NB_MSECTIONS_PER_PROCESSOR * ___vms->processor_count +
-    ___CEILING_DIV((___GSTATE->setup_params.min_heap >> ___LWS) +
-                   normal_overflow_reserve,
-                   ___MSECTION_SIZE - 2*___MSECTION_FUDGE);
+  init_nb_sections = compute_nb_msections_min(___vms->processor_count);
+
+  SET_MAX(init_nb_sections,
+          compute_nb_msections_needed(___GSTATE->setup_params.min_heap >> ___LWS));
 
   adjust_msections (&the_msections, init_nb_sections);
 
@@ -4773,21 +4834,22 @@ ___virtual_machine_state ___vms;)
   occupied_words_still = 0;
 
   nb_msections_assigned = 0;
+  nb_msections_stacks   = 0;
 
-#if ___TARGET_MSECTIONS_HIST_LENGTH > 0
+#if ___TARGET_HEAP_SPACE_HIST_LENGTH > 0
 
   {
     int i;
 
-    for (i=0; i<___TARGET_MSECTIONS_HIST_LENGTH; i++)
-      target_msections_hist[i] = 0;
+    for (i=0; i<___TARGET_HEAP_SPACE_HIST_LENGTH; i++)
+      target_heap_space_hist[i] = 0;
 
-    target_msections_hist_last = 0;
+    target_heap_space_hist_last = 0;
   }
 
 #endif
 
-  heap_size = compute_heap_space();
+  heap_size = compute_heap_size();
 
   return ___FIX(___NO_ERR);
 
@@ -4805,9 +4867,9 @@ ___SCMOBJ ___setup_mem ___PVOID
        */
 
       ___GSTATE->setup_params.min_heap = ___cpu_cache_size (0, 0) / 2;
-
-      SET_MAX(___GSTATE->setup_params.min_heap, ___DEFAULT_MIN_HEAP);
     }
+
+  SET_MAX(___GSTATE->setup_params.min_heap, ___DEFAULT_MIN_HEAP);
 
   if (___GSTATE->setup_params.live_percent <= 0 ||
       ___GSTATE->setup_params.live_percent > 100)
@@ -6240,24 +6302,144 @@ ___SIZE_TS requested_words_still;)
 
   ___BOOL overflow = 0;
   ___SIZE_TS target_heap_space;
+  ___SIZE_TS ths;
   ___SIZE_TS target_movable_space;
   int target_nb_sections;
+  int recent_history;
+  int lower_bound_nb_sections;
+  int upper_bound_nb_sections;
   ___SIZE_TS live;
+  ___SIZE_TS free_space;
+
+  /*
+   * Compute the space occupied by live objects.
+   */
 
   determine_occupied_words (___vms);
 
-  occupied_words_still += requested_words_still; /* pretend requested space is live */
-
-  live = occupied_words_movable + occupied_words_still;
-
   /*
-   * Determine the target size of the heap in msections given the
-   * space requested for the still object.
+   * Determine the strict minimum number of msections required after
+   * the GC.  The code reserves ___MIN_NB_MSECTIONS_PER_PROCESSOR per
+   * processor taking the target number of processors into account in
+   * case the GC was called as part of the resizing of the VM.
    */
 
-  target_heap_space = adjust_heap (live);
+  lower_bound_nb_sections = compute_nb_msections_min(target_processor_count);
 
-  if (live > target_heap_space)
+  SET_MAX(lower_bound_nb_sections,
+          (compute_nb_msections_needed(occupied_words_movable) +
+           nb_msections_stacks));
+
+  /*
+   * Use the recent target heap space history to avoid shrinking the
+   * heap size abruptly.
+   */
+
+  recent_history = max_target_heap_space_in_recent_history (___vms);
+
+  /*
+   * Determine how to resize the heap assuming the requested space is
+   * live and no heap overflow happens, but if this would cause a heap
+   * overflow then try again after setting requested_words_still to
+   * zero and lowering the overflow reserve to make some free space
+   * available to handle the heap overflow.
+   */
+
+  while (1)
+    {
+      /*
+       * At most 2 iterations are executed. From the first to second
+       * iteration, the following variables will change values:
+       *
+       *   overflow will be 0 at first iteration and 1 at second iteration
+       *   overflow_reserve will be lower at second iteration
+       *   requested_words_still will be 0 at second iteration
+       */
+
+      /* Pretend requested space is live */
+      occupied_words_still += requested_words_still;
+
+      live = occupied_words_movable + occupied_words_still;
+
+      /*
+       * Determine the size to grow/shrink the heap at the end of the
+       * GC, taking into account the resizing policy (live ratio and
+       * min/max heap size).
+       */
+
+      target_heap_space = adjust_heap (live) + normal_overflow_reserve;
+
+      ths = target_heap_space; /* remember target_heap_space for history */
+
+      SET_MAX(ths, recent_history);
+
+      target_movable_space = ths - occupied_words_still;
+
+      /*
+       * Compute the number of msections required after the GC.
+       */
+
+      target_nb_sections = compute_nb_msections_needed(target_movable_space) +
+                           nb_msections_stacks;
+
+      upper_bound_nb_sections = target_nb_sections;
+
+      if (___GSTATE->setup_params.max_heap > 0)
+        {
+          upper_bound_nb_sections =
+            ((___GSTATE->setup_params.max_heap >> ___LWS) -
+             occupied_words_still) / ___MSECTION_SIZE;
+
+          SET_MAX(target_nb_sections, lower_bound_nb_sections);
+          SET_MIN(target_nb_sections, upper_bound_nb_sections);
+        }
+
+      /*
+       * Check if there was a heap overflow.
+       */
+
+      if (overflow) break;
+
+      free_space = compute_free_heap_space_in_msections(target_nb_sections);
+
+      if (free_space <  overflow_reserve)
+        {
+          /*
+           * Trigger a recoverable heap overflow.
+           */
+
+          overflow = 1;
+
+          /*
+           * Get space from overflow reserve to handle heap overflow.
+           */
+
+          overflow_reserve >>= 1; /* make 50% of reserve usable */
+
+          if (overflow_reserve < (normal_overflow_reserve>>2))
+            fatal_heap_overflow ();
+
+          /*
+           * Stop pretending requested space is live.
+           */
+
+          occupied_words_still -= requested_words_still;
+          requested_words_still = 0;
+        }
+      else
+        break;
+    }
+
+  adjust_msections (&the_msections, target_nb_sections);
+
+  /*
+   * Detect heap overflows caused by failure to allocate msections
+   * from the C heap. These heap overflows can happen even when a
+   * maximum heap size was not set in the runtime options, for example
+   * if the virtual memory is exhausted.
+   */
+
+  if (the_msections->nb_sections < target_nb_sections)
     {
       /*
        * Trigger a recoverable heap overflow.
@@ -6266,81 +6448,40 @@ ___SIZE_TS requested_words_still;)
       overflow = 1;
 
       /*
-       * Take some space from the overflow reserve.
+       * Get space from overflow reserve to handle heap overflow.
        */
 
-      overflow_reserve >>= 5; /* make 96.875% of reserve usable */
+      overflow_reserve >>= 1; /* make 50% of reserve usable */
 
-      if (overflow_reserve == 0)
+      if (overflow_reserve < (normal_overflow_reserve>>2))
         fatal_heap_overflow ();
 
       /*
-       * Cancel allocation of still object.
+       * Stop pretending requested space is live.
        */
 
       occupied_words_still -= requested_words_still;
-      live -= requested_words_still;
-
-      target_heap_space = adjust_heap (live);
+      requested_words_still = 0;
     }
 
-  if (live + normal_overflow_reserve <= target_heap_space)
+  if (!overflow)
     {
-      /*
-       * Now that there is enough free space, reset the overflow
-       * reserve to its normal value.
-       */
+      add_to_target_heap_space_history (___vms, target_heap_space);
 
-      overflow_reserve = normal_overflow_reserve;
+      free_space = compute_free_heap_space_in_msections(the_msections->nb_sections);
+
+      if (free_space > normal_overflow_reserve)
+        {
+          /*
+           * Now that there is enough free space, reset the overflow
+           * reserve to its normal value.
+           */
+
+          overflow_reserve = normal_overflow_reserve;
+        }
     }
 
-  target_movable_space = target_heap_space - occupied_words_still;
-
-  SET_MAX(target_movable_space, 0);
-
-  /*
-   * Compute the number of msections required after the GC.  The code
-   * reserves ___MIN_NB_MSECTIONS_PER_PROCESSOR per processor taking
-   * the target number of processors into account in case the GC was
-   * called as part of the resizing of the VM.
-   */
-
-  target_nb_sections =
-    ___MIN_NB_MSECTIONS_PER_PROCESSOR * target_processor_count +
-    ___CEILING_DIV(target_movable_space + normal_overflow_reserve,
-                   ___MSECTION_SIZE - 2*___MSECTION_FUDGE);
-
-  SET_MAX(target_nb_sections,
-          nb_msections_assigned);
-
-#if ___TARGET_MSECTIONS_HIST_LENGTH > 0
-
-  /*
-   * Do not shrink the number of msections abruptly. The number of
-   * msections will be at least the target size in recent history.
-   */
-
-  {
-    int m = target_nb_sections;
-    int i;
-
-    for (i=0; i<___TARGET_MSECTIONS_HIST_LENGTH; i++)
-      if (target_msections_hist[i] > m)
-        m = target_msections_hist[i];
-
-    target_msections_hist_last =
-      (target_msections_hist_last+1) % ___TARGET_MSECTIONS_HIST_LENGTH;
-
-    target_msections_hist[target_msections_hist_last] = target_nb_sections;
-
-    target_nb_sections = m;
-  }
-
-#endif
-
-  adjust_msections (&the_msections, target_nb_sections);
-
-  heap_size = compute_heap_space();
+  heap_size = compute_heap_size();
 
   /*
    * Maintain GC statistics.
@@ -7024,7 +7165,7 @@ ___PSDKR)
 #ifdef CALL_GC_FREQUENTLY
               --___gc_calls_to_punt < 0 ||
 #endif
-              compute_free_heap_space() < ___MSECTION_SIZE)
+              compute_free_heap_space_approximately() < ___MSECTION_SIZE)
             {
               ALLOC_MEM_UNLOCK();
 
@@ -7332,7 +7473,7 @@ ___PSDKR)
 #ifdef CALL_GC_FREQUENTLY
             --___gc_calls_to_punt >= 0 &&
 #endif
-            compute_free_heap_space() >= ___MSECTION_SIZE)
+            compute_free_heap_space_approximately() >= ___MSECTION_SIZE)
           {
             if (alloc_heap_ptr > alloc_heap_limit - ___MSECTION_FUDGE)
               next_heap_msection_without_locking (___ps);

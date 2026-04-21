@@ -11425,13 +11425,16 @@ ___msection *alloc_msection_;
 /* number of msections assigned to processors */
 int nb_msections_assigned_;
 
-/* history of target number of msections */
-#ifndef ___TARGET_MSECTIONS_HIST_LENGTH
-#define ___TARGET_MSECTIONS_HIST_LENGTH 16
+/* number of msections assigned to stacks (otherwise assigned to heap) */
+int nb_msections_stacks_;
+
+/* history of target heap space */
+#ifndef ___TARGET_HEAP_SPACE_HIST_LENGTH
+#define ___TARGET_HEAP_SPACE_HIST_LENGTH 16
 #endif
-#if ___TARGET_MSECTIONS_HIST_LENGTH > 0
-int target_msections_hist_[___TARGET_MSECTIONS_HIST_LENGTH];
-int target_msections_hist_last_;
+#if ___TARGET_HEAP_SPACE_HIST_LENGTH > 0
+___SIZE_TS target_heap_space_hist_[___TARGET_HEAP_SPACE_HIST_LENGTH];
+int target_heap_space_hist_last_;
 #endif
 
 /* Used for resizing VM (number of processors after the resize operation) */
